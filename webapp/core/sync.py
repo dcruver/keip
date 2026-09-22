@@ -397,6 +397,13 @@ def _create_pod_template(parent, labels, integration_image) -> Mapping[str, Any]
     if env_from:
         pod_template["spec"]["containers"][0]["envFrom"] = env_from
 
+    # Passed through unmodified. Init containers do not receive the route's
+    # volume mounts: bootstrap work that needs the route config belongs in
+    # the integration container, not here.
+    init_containers = parent["spec"].get("initContainers")
+    if init_containers:
+        pod_template["spec"]["initContainers"] = init_containers
+
     return pod_template
 
 

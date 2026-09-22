@@ -629,3 +629,53 @@ def test_per_route_image_default_when_absent(full_route):
     # Should use the default from config (INTEGRATION_CONTAINER_IMAGE)
     import config as cfg
     assert container["image"] == cfg.INTEGRATION_CONTAINER_IMAGE
+
+
+def test_init_containers_passed_through(full_route):
+    """spec.initContainers reaches the pod template unmodified."""
+    init = [
+        {
+            "name": "bootstrap",
+            "image": "curlimages/curl:8.11.0",
+            "command": ["sh", "-c", "curl -sf http://example.svc:6333/ready"],
+        }
+    ]
+    full_route["parent"]["spec"]["initContainers"] = init
+
+    result = sync(full_route)
+
+    pod_spec = result["children"][0]["spec"]["template"]["spec"]
+    assert pod_spec["initContainers"] == init
+
+
+def test_init_containers_preserve_arbitrary_fields(full_route):
+    """Fields the CRD does not enumerate survive; the schema sets
+    x-kubernetes-preserve-unknown-fields so the API server does not prune them."""
+    init = [
+        {
+            "name": "bootstrap",
+            "image": "busybox:1.36",
+            "args": ["true"],
+            "securityContext": {"readOnlyRootFilesystem": True},
+            "resources": {"limits": {"cpu": "100m"}},
+        }
+    ]
+    full_route["parent"]["spec"]["initContainers"] = init
+
+    result = sync(full_route)
+
+    pod_spec = result["children"][0]["spec"]["template"]["spec"]
+    assert pod_spec["initContainers"][0]["securityContext"] == {
+        "readOnlyRootFilesystem": True
+    }
+    assert pod_spec["initContainers"][0]["resources"] == {"limits": {"cpu": "100m"}}
+
+
+def test_init_containers_key_omitted_when_absent(full_route):
+    """With no spec.initContainers the key is absent from the pod spec."""
+    full_route["parent"]["spec"].pop("initContainers", None)
+
+    result = sync(full_route)
+
+    pod_spec = result["children"][0]["spec"]["template"]["spec"]
+    assert "initContainers" not in pod_spec
