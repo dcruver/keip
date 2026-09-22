@@ -178,6 +178,26 @@ spec:
                   minimum: 1
                   maximum: 20
                   default: 1
+                strategy:
+                  description: "Deployment update strategy. Set type to Recreate for routes whose consumers must be singletons (AMQP listeners, pollers, long-running sync connections), where two overlapping pods during a rollout would double-process. Omit to use the Kubernetes default."
+                  type: object
+                  properties:
+                    type:
+                      description: "Type of deployment. Can be Recreate or RollingUpdate."
+                      type: string
+                      enum:
+                        - Recreate
+                        - RollingUpdate
+                    rollingUpdate:
+                      description: "Rolling update config params. Present only if type = RollingUpdate."
+                      type: object
+                      properties:
+                        maxSurge:
+                          description: "The maximum number of pods that can be scheduled above the desired number. Value can be an absolute number or a percentage."
+                          x-kubernetes-int-or-string: true
+                        maxUnavailable:
+                          description: "The maximum number of pods that can be unavailable during the update. Value can be an absolute number or a percentage."
+                          x-kubernetes-int-or-string: true
                 persistentVolumeClaims:
                   description: "List with the names of PersistentVolumeClaims and their mountPaths on the pod container"
                   type: array

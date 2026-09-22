@@ -629,3 +629,38 @@ def test_per_route_image_default_when_absent(full_route):
     # Should use the default from config (INTEGRATION_CONTAINER_IMAGE)
     import config as cfg
     assert container["image"] == cfg.INTEGRATION_CONTAINER_IMAGE
+
+
+def test_deployment_strategy_recreate(full_route):
+    """spec.strategy is passed through to the Deployment verbatim."""
+    full_route["parent"]["spec"]["strategy"] = {"type": "Recreate"}
+
+    result = sync(full_route)
+
+    deployment = result["children"][0]
+    assert deployment["spec"]["strategy"] == {"type": "Recreate"}
+
+
+def test_deployment_strategy_rolling_update_params(full_route):
+    """rollingUpdate params survive passthrough, including int-or-string values."""
+    strategy = {
+        "type": "RollingUpdate",
+        "rollingUpdate": {"maxSurge": 0, "maxUnavailable": "25%"},
+    }
+    full_route["parent"]["spec"]["strategy"] = strategy
+
+    result = sync(full_route)
+
+    deployment = result["children"][0]
+    assert deployment["spec"]["strategy"] == strategy
+
+
+def test_deployment_strategy_key_omitted_when_absent(full_route):
+    """With no spec.strategy the key is absent, not None, so the API server
+    applies its own default and existing routes are not churned on upgrade."""
+    full_route["parent"]["spec"].pop("strategy", None)
+
+    result = sync(full_route)
+
+    deployment = result["children"][0]
+    assert "strategy" not in deployment["spec"]

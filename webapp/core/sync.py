@@ -437,6 +437,12 @@ def _new_deployment(parent):
         },
     }
 
+    # Omit the key entirely when unset so the API server applies its own
+    # default (RollingUpdate 25%/25%). Emitting an explicit None would make
+    # metacontroller churn every existing route on upgrade.
+    if strategy := parent["spec"].get("strategy"):
+        deployment["spec"]["strategy"] = strategy
+
     return deployment
 
 
