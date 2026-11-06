@@ -1,12 +1,14 @@
 import logging.config
 
 from starlette.applications import Starlette
+from starlette.exceptions import HTTPException
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 from starlette.routing import Route, Mount
 from starlette.types import ASGIApp
 
 import config as cfg
+from errors import http_exception_handler, unhandled_exception_handler
 from logconf import LOG_CONF
 from routes import webhook
 from routes.webhook import build_webhook
@@ -57,7 +59,14 @@ def create_app() -> ASGIApp:
         Mount(path="/webhook", routes=webhook.routes + addon_routes),
     ]
 
-    starlette_app = Starlette(debug=cfg.DEBUG, routes=routes)
+    starlette_app = Starlette(
+        debug=cfg.DEBUG,
+        routes=routes,
+        exception_handlers={
+            HTTPException: http_exception_handler,
+            Exception: unhandled_exception_handler,
+        },
+    )
 
     if cfg.CORS_ALLOWED_ORIGINS:
         starlette_app = _with_cors(starlette_app, cfg.CORS_ALLOWED_ORIGINS)

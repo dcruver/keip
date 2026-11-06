@@ -8,6 +8,8 @@ from starlette.testclient import TestClient
 
 from unittest.mock import patch
 
+from kubernetes.client.rest import ApiException
+
 from routes.deploy import deploy_route
 from models import Resource, Status
 
@@ -67,17 +69,29 @@ def test_deploy_route_invalid_names(mock_k8s_client, test_client, name):
     assert res.status_code == 422
     result = res.json()
     assert result["status"] == "error"
+    assert result["message"] == "Validation failed"
 
 
 def test_deploy_malformed_json(mock_k8s_client, test_client):
-    request_body = copy.deepcopy(body)
-    del request_body["routes"][0]["name"]
+    res = test_client.put(
+        "/route",
+        content='{"routes": [',
+        headers={"content-type": "application/json"},
+    )
 
-    res = test_client.put("/route", json=request_body)
+    assert res.status_code == 400
+    result = res.json()
+    assert result["status"] == "error"
+    assert result["message"] == "Failed to parse request body: Expecting value"
+
+
+def test_deploy_route_invalid_body_type(mock_k8s_client, test_client):
+    res = test_client.put("/route", json=[])
 
     assert res.status_code == 422
     result = res.json()
     assert result["status"] == "error"
+    assert result["message"] == "Validation failed"
 
 
 
@@ -87,6 +101,7 @@ def test_deploy_route_missing_body(mock_k8s_client, test_client):
     assert res.status_code == 422
     result = res.json()
     assert result["status"] == "error"
+    assert result["message"] == "Validation failed"
 
 
 def test_deploy_missing_route(mock_k8s_client, test_client):
@@ -98,6 +113,23 @@ def test_deploy_missing_route(mock_k8s_client, test_client):
     assert res.status_code == 422
     result = res.json()
     assert result["status"] == "error"
+    assert result["message"] == "Validation failed"
+
+
+def test_deploy_route_k8s_api_exception(mock_k8s_client, test_client):
+    mock_k8s_client.create_route_resources.side_effect = ApiException(
+        status=503, reason="Kubernetes cluster not reachable"
+    )
+
+    res = test_client.put("/route", json=body)
+
+    assert res.status_code == 503
+    result = res.json()
+    assert result["status"] == "error"
+    assert (
+        result["message"]
+        == "Failed to deploy route 'my-route' in namespace 'default': Kubernetes cluster not reachable"
+    )
 
 
 def test_deploy_route_generic_exception(mock_k8s_client, test_client):
@@ -108,4 +140,6 @@ def test_deploy_route_generic_exception(mock_k8s_client, test_client):
     res = test_client.put("/route", json=body)
 
     assert res.status_code == 500
-    assert "Internal server error" in res.text
+    result = res.json()
+    assert result["status"] == "error"
+    assert result["message"] == "Failed to deploy route 'my-route' in namespace 'default'"

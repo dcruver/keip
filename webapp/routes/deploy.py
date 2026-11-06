@@ -1,15 +1,18 @@
 import asyncio
 import logging
 import json
+from json import JSONDecodeError
 
 from dataclasses import asdict
 
+from kubernetes.client.rest import ApiException
 from pydantic import ValidationError
 
 from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
 from starlette.requests import Request
 
+from errors import api_exception_message, api_exception_status_code, error_response
 from models import RouteData, RouteRequest
 from core import k8s_client
 
@@ -47,7 +50,7 @@ async def deploy_route(request: Request):
     _LOGGER.info("Received deployment request")
     try:
         body = await request.json()
-        route_request = RouteRequest(**body)
+        route_request = RouteRequest.model_validate(body)
 
         async def _deploy_single_route(route):
             route_data = RouteData(
@@ -56,9 +59,33 @@ async def deploy_route(request: Request):
                 namespace=route.namespace,
             )
             _LOGGER.info("Creating resources for route: %s", route_data.route_name)
-            return await asyncio.to_thread(
-                k8s_client.create_route_resources, route_data
-            )
+            try:
+                return await asyncio.to_thread(
+                    k8s_client.create_route_resources, route_data
+                )
+            except ApiException as e:
+                message = (
+                    f"Failed to deploy route '{route_data.route_name}' in namespace "
+                    f"'{route_data.namespace}': {api_exception_message(e)}"
+                )
+                _LOGGER.warning(message)
+                raise HTTPException(
+                    status_code=api_exception_status_code(e), detail=message
+                ) from e
+            except Exception as e:
+                _LOGGER.error(
+                    "Unexpected error deploying route '%s' in namespace '%s'",
+                    route_data.route_name,
+                    route_data.namespace,
+                    exc_info=True,
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        f"Failed to deploy route '{route_data.route_name}' in "
+                        f"namespace '{route_data.namespace}'"
+                    ),
+                ) from e
 
         results = await asyncio.gather(
             *[_deploy_single_route(route) for route in route_request.routes]
@@ -68,17 +95,18 @@ async def deploy_route(request: Request):
             [asdict(resource) for resource in created_resources], status_code=201
         )
 
-    except HTTPException:
-        raise
+    except JSONDecodeError as e:
+        return error_response(
+            f"Failed to parse request body: {e.msg}", status_code=400
+        )
+    except HTTPException as e:
+        return error_response(str(e.detail), status_code=e.status_code)
     except ValidationError as e:
-        return JSONResponse(
-            {
-                "status": "error",
-                "message": "Validation failed",
-                "errors": json.loads(e.json()),
-            },
+        return error_response(
+            "Validation failed",
             status_code=422,
+            details=json.loads(e.json()),
         )
     except Exception as e:
         _LOGGER.error("An unexpected error occurred: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from e
+        return error_response("Internal server error", status_code=500)

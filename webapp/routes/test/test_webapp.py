@@ -53,6 +53,10 @@ def test_sync_endpoint_invalid_json(test_client, endpoint, status_code):
     response = test_client.post(endpoint, json=None)
 
     assert response.status_code == status_code
+    assert response.json() == {
+        "status": "error",
+        "message": "Request body must be a JSON object",
+    }
 
 
 @pytest.mark.parametrize(
@@ -66,6 +70,10 @@ def test_sync_endpoint_empty_body(test_client, endpoint, status_code):
     response = test_client.post(endpoint, json={})
 
     assert response.status_code == status_code
+    assert response.json() == {
+        "status": "error",
+        "message": "Missing field from request: 'parent'",
+    }
 
 
 @pytest.fixture(scope="module")
